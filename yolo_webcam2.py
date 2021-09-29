@@ -48,7 +48,7 @@ COLORS = np.random.uniform(0, 255, size=(len(classes), 3))
 # setup the network
 net = cv2.dnn.readNet(weightsInput, configInput)
 
-video_capture = cv2.VideoCapture(0)
+video_capture = cv2.VideoCapture(1)
 # set width
 video_capture.set(3, 416)
 # set height
