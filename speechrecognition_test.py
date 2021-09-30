@@ -1,30 +1,33 @@
-#!/usr/bin/env python3
-
-# NOTE: this example requires PyAudio because it uses the Microphone class
-
 import speech_recognition as sr
+# obtain path to "english.wav" in the same folder as this script
+from os import path
+import sys
+import os
+
+audioClip="recorded.wav"
+outputFile=os.path.splitext(audioClip)[0]
+
+# output to textfile
+def saveToFile(text):
+    sys.stdout=open(outputFile,"w")
+    print (text)
+    sys.stdout.close()
+ 
 
 
-def main():
-
-    r = sr.Recognizer()
-
-    with sr.Microphone() as source:
-        r.adjust_for_ambient_noise(source)
-
-        audio = r.listen(source)
-
-        try:
-
-            print(r.recognize_google(audio))
-
-        except Exception as e:
-            print("Error :  " + str(e))
+AUDIO_FILE = path.join(path.dirname(path.realpath(__file__)), audioClip)
 
 
-        with open("recorded.wav", "wb") as f:
-            f.write(audio.get_wav_data())
+# use the audio file as the audio source
+r = sr.Recognizer()
+with sr.AudioFile(AUDIO_FILE) as source:
+    audio = r.record(source)  # read the entire audio file
 
-
-if __name__ == "__main__":
-    main()
+# recognize speech using Sphinx
+try:
+    # print("Sphinx thinks you said ..... " + r.recognize_sphinx(audio))
+    saveToFile(r.recognize_sphinx(audio))
+except sr.UnknownValueError:
+    print("Sphinx could not understand audio")
+except sr.RequestError as e:
+    print("Sphinx error; {0}".format(e))
