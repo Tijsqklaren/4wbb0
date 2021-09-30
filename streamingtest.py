@@ -5,7 +5,7 @@
 import io
 import v4l2capture
 import logging
-import SocketServer
+import socketserver
 from threading import Condition
 from http import server
 
