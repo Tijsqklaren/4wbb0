@@ -4,6 +4,7 @@ import os
 import numpy as np
 from socket import socket, gethostbyname, AF_INET, SOCK_DGRAM
 import json
+from threading import Thread
 
 # Set files for object recognition
 configInput = os.path.abspath("./yolov3.cfg")
@@ -22,6 +23,7 @@ mySocket.bind((hostName, dataPort))
 
 # variables
 lostObjectLabel = ""
+terminateSearch = False
 
 
 def get_output_layers(net):
@@ -50,7 +52,14 @@ def draw_prediction(img, class_id, confidence, x, y, x_plus_w, y_plus_h, d_cente
     # Put text on top
     cv2.putText(img, (label + ' ' + str(d_center_x) + '% ' + str(d_center_y) + '%'), (x - 10, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-
+def listenForTermination():
+    global terminateSearch
+    (data,addr) = mySocket.recvfrom(SIZE)
+    receivedData = data.decode('utf8', 'strict')
+    if len(receivedData):
+        dataDict = json.loads(receivedData)
+        if(dataDict['type'] == "searchFinished"):
+            terminateSearch = True
 
 #read in the class definitions
 classes = None
@@ -71,14 +80,23 @@ fontColor = (255, 255, 255)
 lineType = 2
 
 while True:
-    print('iteration')
-    if(lostObjectLabel == ""):
+    if terminateSearch:
+        print('terminating search executed')
+        lostObjectLabel == ""
+        cv2.destroyAllWindows()
+
+    if(lostObjectLabel == "" or terminateSearch):
         (data,addr) = mySocket.recvfrom(SIZE)
         receivedData = data.decode('utf8', 'strict')
         if len(receivedData):
+            print(receivedData)
             dataDict = json.loads(receivedData)
             if(dataDict['type'] == "objectLabel"):
                 lostObjectLabel = dataDict['value']
+                print("Searching for: " + lostObjectLabel)
+                listenForTerminationThread = Thread(target=listenForTermination)
+                listenForTerminationThread.start()
+                terminateSearch = False
             # If in yolov3.txt, still have to mke
 
     if(True):
@@ -137,9 +155,9 @@ while True:
 
         cv2.imshow('Input', frame)
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            imageHub.close()
-            cv2.destroyAllWindows()
-            print('server closed')
-            break
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        imageHub.close()
+        cv2.destroyAllWindows()
+        print('server closed')
+        break
 
