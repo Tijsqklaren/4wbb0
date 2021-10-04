@@ -2,7 +2,7 @@ import RPi.GPIO as GPIO
 from imutils.video import VideoStream
 import imagezmq
 import socket
-from socket import socket, gethostbyname, AF_INET, SOCK_DGRAM
+from socket import socket, gethostbyname, AF_INET, SOCK_DGRAM, SOL_SOCKET, SO_REUSEADDR
 import speech_recognition as sr
 import json
 from threading import Thread
@@ -79,16 +79,17 @@ for pin in pins:
     GPIO.setup(pins[pin], GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
 # Set op image socket
-server_ip = "192.168.0.11"
+server_ip = "192.168.0.22"
 hostName = gethostbyname('0.0.0.0')
 imagePort = 5555
-dataPort = 5000
+dataPort = 8000
 SIZE = 1024
 
 sender = imagezmq.ImageSender(connect_to="tcp://{}:5555".format(server_ip))
 rpiName = gethostbyname('0.0.0.0')
 
 mySocket = socket(AF_INET, SOCK_DGRAM)
+mySocket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
 mySocket.bind((hostName, dataPort))
     
 # Set event listeners
