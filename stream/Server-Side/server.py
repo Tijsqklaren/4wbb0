@@ -2,7 +2,7 @@ import imagezmq
 import cv2
 import os
 import numpy as np
-from socket import socket, gethostbyname, AF_INET, SOCK_DGRAM
+from socket import socket, gethostbyname, AF_INET, SOCK_DGRAM, gethostname
 import json
 from threading import Thread
 
@@ -78,6 +78,16 @@ bottomLeftCornerOfText = (10, 200)
 fontScale = 1
 fontColor = (255, 255, 255)
 lineType = 2
+
+# Give the server's IP to the client
+mySocket.sendto(str.encode(json.dumps({"type": "serverData", "server_ip": socket.gethostbyname(socket.gethostname())})),(client_ip,dataPort))
+(data,addr) = mySocket.recvfrom(SIZE)
+receivedData = data.decode('utf8', 'strict')
+if len(receivedData):
+    dataDict = json.loads(receivedData)
+    if dataDict['type'] == 'serverDataReceived':
+        if dataDict['value']:
+            print('Server data shared succesfully')
 
 while True:
     if terminateSearch:
