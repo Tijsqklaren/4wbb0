@@ -2,11 +2,7 @@ import imagezmq
 import cv2
 import os
 import numpy as np
-<<<<<<< master
 from socket import socket, gethostbyname, AF_INET, SOCK_DGRAM, gethostname
-=======
-from socket import socket, gethostbyname, gethostname, AF_INET, SOCK_DGRAM
->>>>>>> local
 import json
 from threading import Thread
 
@@ -101,20 +97,8 @@ fontScale = 1
 objectColor = (255, 255, 255)
 lineType = 2
 
-<<<<<<< master
-# Give the server's IP to the client
-mySocket.sendto(str.encode(json.dumps({"type": "serverData", "server_ip": socket.gethostbyname(socket.gethostname())})),(client_ip,dataPort))
-(data,addr) = mySocket.recvfrom(SIZE)
-receivedData = data.decode('utf8', 'strict')
-if len(receivedData):
-    dataDict = json.loads(receivedData)
-    if dataDict['type'] == 'serverDataReceived':
-        if dataDict['value']:
-            print('Server data shared succesfully')
-=======
 # Run the function to initialize the sockets
 initSockets()
->>>>>>> local
 
 while True:
     if terminateSearch:
