@@ -4,7 +4,7 @@ import imagezmq
 import socket
 import time
 
-server_ip = "192.168.0.11"
+server_ip = "192.168.0.26"
 
 sender = imagezmq.ImageSender(connect_to="tcp://{}:5555".format(server_ip))
 
