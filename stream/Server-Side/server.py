@@ -5,6 +5,7 @@ import numpy as np
 from socket import socket, gethostbyname, AF_INET, SOCK_DGRAM, gethostname
 import json
 from threading import Thread
+import time
 
 # Set files for object recognition
 configInput = os.path.abspath("./yolov3.cfg")
@@ -16,7 +17,10 @@ lostObjectLabel = ""
 terminateSearch = False
 
 dataPort = 5000
+imagePort = 5555
 SIZE = 1024
+
+loopbreak = False
 
 
 def get_output_layers(net):
@@ -27,34 +31,62 @@ def get_output_layers(net):
     return output_layers
 
 def draw_prediction(img, class_id, confidence, x, y, x_plus_w, y_plus_h, d_center_x, d_center_y):
+    global objectColor
+    global otherObjectsColor
+
+    if str(classes[class_id]) == lostObjectLabel:
+        color = objectColor
+    else:
+        color = otherObjectsColor
+
     label = str(classes[class_id])
 
     center_x = round((x_plus_w-x)/2+x)
     center_y = round((y_plus_h-y)/2+y)
 
     # Rectangle around complete object
-    cv2.rectangle(img, (x, y), (x_plus_w, y_plus_h), objectColor, 2)
+    cv2.rectangle(img, (x, y), (x_plus_w, y_plus_h), color, 2)
 
     # Circle in center of object
     cv2.circle(img, (center_x,center_y), 10, (0, 0, 255), 0)
 
     # Put text on top
-    cv2.putText(img, (label + ' ' + str(d_center_x) + '% ' + str(d_center_y) + '%'), (x - 10, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, objectColor, 2)
+    cv2.putText(img, (label + ' ' + str(d_center_x) + '% ' + str(d_center_y) + '%'), (x - 10, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
 def listenForInput():
-    (data,addr) = mySocket.recvfrom(SIZE)
-    receivedData = data.decode('utf8', 'strict')
-    if len(receivedData):
-        dataDict = json.loads(receivedData)
-        if dataDict['type'] == "searchFinished":
-            global terminateSearch
-            terminateSearch = True
-        elif dataDict['type'] == "clientPowerOff":
-            print('Client is powering off, so reset sockets')
-            initSockets()
+    global mySocket
+    global terminateSearch
+    global lostObjectLabel
+    global client_ip
+    global dataPort
+
+    while True:
+        (data,addr) = mySocket.recvfrom(SIZE)
+        receivedData = data.decode('utf8', 'strict')
+        if len(receivedData):
+            dataDict = json.loads(receivedData)
+            print(dataDict)
+            if dataDict['type'] == "searchFinished":
+                terminateSearch = True
+            elif dataDict['type'] == "clientPowerOff":
+                print('Client is powering off, so turn server off')
+                loopbreak = True
+            elif(dataDict['type'] == "objectLabel"):
+                lostObjectLabel = dataDict['value']
+                print("Searching for: " + lostObjectLabel)
+                mySocket.sendto(str.encode(json.dumps({"type": "objectLabelReceived", "value": True})),(client_ip,dataPort))
+                terminateSearch = False
+            
 
 
 def initSockets():
+    global mySocket
+    global server_ip
+    global client_ip
+    global dataPort
+    global SIZE
+    global imageHub
+
     # Initialize sockets
     imageHub = imagezmq.ImageHub()
     hostName = gethostbyname('0.0.0.0')
@@ -69,10 +101,11 @@ def initSockets():
 
     # Send the server's IP-addres
     mySocket.sendto(str.encode(json.dumps({"type": "serverHandshake", "server_ip": server_ip})),(client_ip,dataPort))
-    
+
     # Wait for confirmation from client
     (data,addr) = mySocket.recvfrom(SIZE)
     receivedData = data.decode('utf8', 'strict')
+
     if len(receivedData):
         dataDict = json.loads(receivedData)
         if(dataDict['type'] == "clientHandshake"):
@@ -94,31 +127,30 @@ net = cv2.dnn.readNet(weightsInput, configInput)
 font = cv2.FONT_HERSHEY_SIMPLEX
 bottomLeftCornerOfText = (10, 200)
 fontScale = 1
-objectColor = (255, 255, 255)
+objectColor = (255, 0, 0)
+otherObjectsColor = (0,0,0)
 lineType = 2
 
 # Run the function to initialize the sockets
 initSockets()
 
 while True:
+    if cv2.waitKey(1) & 0xFF == ord('q') or loopbreak:
+        imageHub.close()
+        cv2.destroyAllWindows()
+        break
+
     if terminateSearch:
         print('Terminated search')
         lostObjectLabel == ""
         cv2.destroyAllWindows()
+
+    while not len(lostObjectLabel):
         continue
 
-    if(lostObjectLabel == ""):
-        (data,addr) = mySocket.recvfrom(SIZE)
-        receivedData = data.decode('utf8', 'strict')
-        if len(receivedData):
-            print(receivedData)
-            dataDict = json.loads(receivedData)
-            if(dataDict['type'] == "objectLabel"):
-                lostObjectLabel = dataDict['value']
-                print("Searching for: " + lostObjectLabel)
-                terminateSearch = False
-
     (rpiName, frame) = imageHub.recv_image()
+    imageHub.send_reply(b'OK')
+    
     Width = frame.shape[1]
     Height = frame.shape[0]
 
@@ -161,20 +193,13 @@ while True:
 
     for i in indices:
         i = i[0]
-        if str(classes[class_ids[i]]) == lostObjectLabel:
-            box = boxes[i]
-            x = box[0]
-            y = box[1]
-            w = box[2]
-            h = box[3]
-            draw_prediction(frame, class_ids[i], confidences[i], round(x), round(y), round(x + w), round(y + h), d_center_x, d_center_y)
+        box = boxes[i]
+        x = box[0]
+        y = box[1]
+        w = box[2]
+        h = box[3]
+        draw_prediction(frame, class_ids[i], confidences[i], round(x), round(y), round(x + w), round(y + h), d_center_x, d_center_y)
 
     class_list = [i[0] for i in indices]
 
     cv2.imshow('Input', frame)
-
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        imageHub.close()
-        cv2.destroyAllWindows()
-        print('server closed')
-        break

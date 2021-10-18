@@ -1,32 +1,42 @@
 import RPi.GPIO as GPIO
-from imutils.video import VideoStream
+# from imutils.video import VideoStream
 import imagezmq
 import socket
-from socket import socket, gethostbyname, AF_INET, SOCK_DGRAM
-import speech_recognition as sr
+from socket import socket, gethostbyname, gethostname, AF_INET, SOCK_DGRAM, SOL_SOCKET, SO_REUSEADDR
+# import speech_recognition as sr
 import json
 from threading import Thread
 import time
 import sys
+import cv2
 import subprocess
 
 # Set variables
 imagePort = 5555
-dataPort = 8000
+dataPort = 5000
 SIZE = 1024
 serverConfigured = False
 percentageValue = False
+beepGeneratorActive = False
+speechPinDown = False
+rpiName = gethostname()
 
 def activateSpeech(self):
+    global mySocket
+    global server_ip
+    global dataPort
+    global objectLabel
+
     objectLabel = "bottle"
+
+    print('Searching for: ' + objectLabel)
 
     sendQuery = {'type': 'objectLabel', 'value': objectLabel}
 
     mySocket.sendto(str.encode(json.dumps(sendQuery)),(server_ip,dataPort))
 
-    activateSearch()
-
 def powerOFF(self):
+    global mySocket
     print('powering device off')
 
     # Tell the server to also terminate the connection
@@ -38,17 +48,27 @@ def powerOFF(self):
 
 # Search for the object
 def activateSearch():
-    # initiate a while loop
+    global mySocket
+    global beepGeneratorActive
+    global buzzerThread
+    global rpiName
+    global imagePort
+    global server_ip
 
     buzzerThread = Thread(target=beepGenerator)
     buzzerThread.start()
-    beepGenerator.active = False
+    beepGeneratorActive = False
 
-    vs = VideoStream(usePiCamera=False).start()
+    cam = cv2.VideoCapture(0)
+
+    sender = imagezmq.ImageSender(connect_to="tcp://{ip}:{port}".format(ip = server_ip, port = imagePort))
+
+    print('Start searching')
 
     while True:
         # Get the frame and send it
-        frame = vs.read()
+        rval, frame = cam.read()
+        
         sender.send_image(rpiName, frame)
 
         # If the object is found, quit the loop
@@ -56,19 +76,25 @@ def activateSearch():
             print('Quit button pressed')
             sendQuery = {'type': 'searchFinished', 'value': True}
             mySocket.sendto(str.encode(json.dumps(sendQuery)),(server_ip,dataPort))
-            beepGenerator.active = False
-
-            vs.stream.release()
+            beepGeneratorActive = False
+           
+            cam.release()
             break
 
 # Beep generator
-frequencyRange = [1, 100]
 def beepGenerator():
     global percentageValue
-    while beepGenerator.active:
-        if percentageValue > 0:
+    global beepGeneratorActive
+
+    frequencyRange = [1, 100]
+
+    while True:
+        if beepGeneratorActive:
             # Lower percentages -> frequency closer to upper part of range, higher percentage -> frequency closer to lower part of range
-            frequencyRange = frequencyRange[0] + (frequencyRange[1]-frequencyRange[0]) * (1-abs(percentageValue)/100)
+            frequency = frequencyRange[0] + (frequencyRange[1]-frequencyRange[0]) * (1-abs(percentageValue)/100)
+            print('frequency: ' + str(round(frequency, 2)) + "Hz")
+            print('percentage: ' + str(round(percentageValue, 2)) + '%')
+            # print((frequencyRange[1]-frequencyRange[0]) * (1-abs(percentageValue)/100))
             # Start buzzer
             GPIO.output(buzzerPin, GPIO.HIGH)
             time.sleep(1/(2*frequency))
@@ -78,6 +104,11 @@ def beepGenerator():
 
 # Listen to input from server
 def socketThreadFunc():
+    global mySocket
+    global SIZE
+    global beepGeneratorActive
+    global percentageValue
+
     while True:
         # Receive data back from the server
         (data,addr) = mySocket.recvfrom(SIZE)
@@ -92,11 +123,21 @@ def socketThreadFunc():
                     print('Stop pinging for device')
                     GPIO.output(buzzerPin, GPIO.LOW)
                 elif(dataDict['type'] == "centerDiff"):
-                    global percentageValue
                     percentageValue = dataDict['value']
-                    beepGenerator.active = True
+                    beepGeneratorActive = True
+                elif dataDict['type'] == "objectLabelReceived":
+                    activateSearchThread = Thread(target=activateSearch)
+                    activateSearchThread.start()
 
 def initSockets():
+    global mySocket
+    global SIZE
+    global server_ip
+    global dataPort
+    global imagePort
+    global serverConfigured
+    global socketThread
+
     # Set op image socket
     hostName = gethostbyname('0.0.0.0')
 
@@ -107,6 +148,7 @@ def initSockets():
     print("Waiting for server's connection")
     (data,addr) = mySocket.recvfrom(SIZE)
     data = data.decode('utf8', 'strict')
+    # data = json.dumps({"type": "serverHandshake", "server_ip": "192.168.2.124"})
     if(len(data)):
         dataDict = json.loads(data)
         if(len(dataDict)):
@@ -118,8 +160,6 @@ def initSockets():
 
                 print("Server connected on " + server_ip)
                 
-                sender = imagezmq.ImageSender(connect_to="tcp://{ip}:{port}".format(ip = server_ip, port = dataPort))
-                rpiName = gethostbyname('0.0.0.0')
                 serverConfigured = True
 
                 socketThread = Thread(target=socketThreadFunc)
@@ -145,7 +185,11 @@ initSockets()
 while True:
     if serverConfigured:
         if GPIO.input(buttonPins['speechPIN']) == GPIO.LOW:
+            # activateSpeech(True)
+            speechPinDown = True
+        if GPIO.input(buttonPins['speechPIN']) == GPIO.HIGH and speechPinDown:
             activateSpeech(True)
+            speechPinDown = False
         if GPIO.input(buttonPins['powerPIN']) == GPIO.LOW:
             powerOFF(True)
     else:
