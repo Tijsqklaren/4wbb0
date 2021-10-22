@@ -1,15 +1,17 @@
 import RPi.GPIO as GPIO
-# from imutils.video import VideoStream
 import imagezmq
 import socket
 from socket import socket, gethostbyname, gethostname, AF_INET, SOCK_DGRAM, SOL_SOCKET, SO_REUSEADDR
-# import speech_recognition as sr
 import json
 from threading import Thread
 import time
 import sys
 import cv2
 import subprocess
+import os
+import queue
+import sounddevice as sd
+import vosk
 
 # Set variables
 imagePort = 5555
@@ -20,14 +22,28 @@ percentageValue = False
 beepGeneratorActive = False
 speechPinDown = False
 rpiName = gethostname()
+recognizedLabel = ""
 
-def activateSpeech(self):
+def activateSpeech():
+    global recognizerListening
+
+    recognizerListening = True
+
+def terminateSpeech():
     global mySocket
     global server_ip
     global dataPort
     global objectLabel
+    global recognizerListening
+    global recognizedLabel
 
-    objectLabel = "bottle"
+    recognizerListening = False
+
+    recognizedLabel
+
+    with open('../../yolov3.txt') as f:
+    if recognizedLabel in f.read():
+        objectLabel = recognizedLabel
 
     print('Searching for: ' + objectLabel)
 
@@ -165,6 +181,39 @@ def initSockets():
                 socketThread = Thread(target=socketThreadFunc)
                 socketThread.start()
 
+                voiceRecThread = Thread(target=voiceRecognizer)
+                voiceRecThread.start()
+
+def recCallback(indata, frames, time, status):
+    """This is called (from a separate thread) for each audio block."""
+    if status:
+        print(status, file=sys.stderr)
+    q.put(bytes(indata))
+
+def voiceRecognizer():
+    global model
+    global q
+    global recognizerListening
+    global recognizedLabel
+
+    samplerate = 
+    device = 
+
+    while True:
+        if recognizerListening:
+            with sd.RawInputStream(samplerate=samplerate, blocksize = 8000, device=device, dtype='int16',
+                                    channels=1, callback=recCallback):
+
+                rec = vosk.KaldiRecognizer(model, samplerate)
+                while recognizerListening:
+                    data = q.get()
+                    if rec.AcceptWaveform(data):
+                        recognizedLabel = rec.Result()
+                        print(rec.Result())
+                    else:
+                        recognizedLabel = rec.PartialResult()
+                        print(rec.PartialResult())
+
 # Init pins
 # Set GPIO mode to board (thus using the printed numbering on the pi)
 GPIO.setmode(GPIO.BOARD)
@@ -180,16 +229,18 @@ GPIO.setup(buzzerPin, GPIO.OUT)
 
 # Run the function to initialize the sockets
 initSockets()
+
+# Initialize the voice recognition model
+model = vosk.Model(args.model)
+q = queue.Queue()
     
 # Set event listeners
 while True:
     if serverConfigured:
         if GPIO.input(buttonPins['speechPIN']) == GPIO.LOW:
-            # activateSpeech(True)
-            speechPinDown = True
-        if GPIO.input(buttonPins['speechPIN']) == GPIO.HIGH and speechPinDown:
-            activateSpeech(True)
-            speechPinDown = False
+            activateSpeech()
+        if GPIO.input(buttonPins['speechPIN']) == GPIO.HIGH and recognizerListening:
+            terminateSpeech()
         if GPIO.input(buttonPins['powerPIN']) == GPIO.LOW:
             powerOFF(True)
     else:
