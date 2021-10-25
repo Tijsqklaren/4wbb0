@@ -12,6 +12,8 @@ import os
 import queue
 import sounddevice as sd
 import vosk
+import pyaudio
+import wave
 
 # Set variables
 imagePort = 5555
@@ -23,33 +25,103 @@ beepGeneratorActive = False
 speechPinDown = False
 rpiName = gethostname()
 recognizedLabel = ""
+recognizerListening = False
+recording = True
+
+# Audio recording
+CHUNK = 1024
+FORMAT = pyaudio.paInt16
+CHANNELS = 1
+device_info = sd.query_devices(0, 'input')
+RATE = int(device_info['default_samplerate'])
+
+class VideoCapture:
+    def __init__(self, name):
+        self.cap = cv2.VideoCapture(name)
+        self.q = queue.Queue()
+        t = Thread(target=self._reader)
+        t.daemon = True
+        t.start()
+
+    # read frames as soon as they are available, keeping only most recent one
+    def _reader(self):
+        while True:
+            ret, frame = self.cap.read()
+            if not ret:
+                break
+            if not self.q.empty():
+                try:
+                    self.q.get_nowait()   # discard previous (unprocessed) frame
+                except queue.Empty:
+                    pass
+            self.q.put(frame)
+
+    def read(self):
+        return self.q.get()
+
+    def release(self):
+        self.cap.release()
 
 def activateSpeech():
-    global recognizerListening
-
-    recognizerListening = True
-
-def terminateSpeech():
+    global recording
     global mySocket
     global server_ip
     global dataPort
-    global objectLabel
-    global recognizerListening
-    global recognizedLabel
 
-    recognizerListening = False
-
-    recognizedLabel
-
-    with open('../../yolov3.txt') as f:
-    if recognizedLabel in f.read():
-        objectLabel = recognizedLabel
-
-    print('Searching for: ' + objectLabel)
-
-    sendQuery = {'type': 'objectLabel', 'value': objectLabel}
-
+    sendQuery = {'type': 'startSpeech'}
     mySocket.sendto(str.encode(json.dumps(sendQuery)),(server_ip,dataPort))
+
+    print("Start recording")
+
+    fileName = "outputfile.wav"
+
+    wf = wave.open(fileName, 'wb')
+    wf.setnchannels(CHANNELS)
+    
+    p = pyaudio.PyAudio()
+    
+    stream = p.open(format=FORMAT,
+					channels=CHANNELS,
+					rate=RATE,
+					input=True,
+					frames_per_buffer=CHUNK)
+    
+    frames = []
+    
+    print('start listening')
+    n = 0
+    while recording:
+        print('listening')
+        n += 1
+        data = stream.read(CHUNK)
+        frames.append(data)
+
+    print("Quit recording")
+        
+    sample_width = p.get_sample_size(FORMAT)
+    
+    stream.stop_stream()
+    stream.close()
+    p.terminate()
+    
+    wf.setsampwidth(sample_width)
+    wf.setframerate(RATE)
+    wf.writeframes(b''.join(frames))
+    wf.close()
+
+    sendQuery = {'type': 'quitSpeech', 'size': n, 'sample_width': sample_width, 'rate': RATE}
+    mySocket.sendto(str.encode(json.dumps(sendQuery)),(server_ip,dataPort))
+
+    file = open(fileName, "rb")
+    SendData = file.read(1024)
+
+    i = 0
+    while i <= n:
+        i += 1
+        mySocket.sendto(SendData,(server_ip,dataPort))
+        SendData = file.read(1024)
+
+    print("All data sent")
 
 def powerOFF(self):
     global mySocket
@@ -75,7 +147,7 @@ def activateSearch():
     buzzerThread.start()
     beepGeneratorActive = False
 
-    cam = cv2.VideoCapture(0)
+    cam = VideoCapture(0)
 
     sender = imagezmq.ImageSender(connect_to="tcp://{ip}:{port}".format(ip = server_ip, port = imagePort))
 
@@ -83,10 +155,9 @@ def activateSearch():
 
     while True:
         # Get the frame and send it
-        rval, frame = cam.read()
-        
+        frame = cam.read()
         sender.send_image(rpiName, frame)
-
+        
         # If the object is found, quit the loop
         if GPIO.input(buttonPins['finishPIN']) == GPIO.LOW:
             print('Quit button pressed')
@@ -102,21 +173,21 @@ def beepGenerator():
     global percentageValue
     global beepGeneratorActive
 
-    frequencyRange = [1, 100]
+    frequencyRange = [1, 10]
 
     while True:
         if beepGeneratorActive:
             # Lower percentages -> frequency closer to upper part of range, higher percentage -> frequency closer to lower part of range
             frequency = frequencyRange[0] + (frequencyRange[1]-frequencyRange[0]) * (1-abs(percentageValue)/100)
-            print('frequency: ' + str(round(frequency, 2)) + "Hz")
-            print('percentage: ' + str(round(percentageValue, 2)) + '%')
+            # print('frequency: ' + str(round(frequency, 2)) + "Hz")
+            # print('percentage: ' + str(round(percentageValue, 2)) + '%')
             # print((frequencyRange[1]-frequencyRange[0]) * (1-abs(percentageValue)/100))
             # Start buzzer
             GPIO.output(buzzerPin, GPIO.HIGH)
-            time.sleep(1/(2*frequency))
+            time.sleep(0.05)
             # Stop buzzer
             GPIO.output(buzzerPin, GPIO.LOW)
-            time.sleep(1/(2*frequency))
+            time.sleep(1/frequency)
 
 # Listen to input from server
 def socketThreadFunc():
@@ -141,7 +212,7 @@ def socketThreadFunc():
                 elif(dataDict['type'] == "centerDiff"):
                     percentageValue = dataDict['value']
                     beepGeneratorActive = True
-                elif dataDict['type'] == "objectLabelReceived":
+                elif dataDict['type'] == "objectLabelIdentified":
                     activateSearchThread = Thread(target=activateSearch)
                     activateSearchThread.start()
 
@@ -181,38 +252,11 @@ def initSockets():
                 socketThread = Thread(target=socketThreadFunc)
                 socketThread.start()
 
-                voiceRecThread = Thread(target=voiceRecognizer)
-                voiceRecThread.start()
-
 def recCallback(indata, frames, time, status):
     """This is called (from a separate thread) for each audio block."""
     if status:
         print(status, file=sys.stderr)
     q.put(bytes(indata))
-
-def voiceRecognizer():
-    global model
-    global q
-    global recognizerListening
-    global recognizedLabel
-
-    samplerate = 
-    device = 
-
-    while True:
-        if recognizerListening:
-            with sd.RawInputStream(samplerate=samplerate, blocksize = 8000, device=device, dtype='int16',
-                                    channels=1, callback=recCallback):
-
-                rec = vosk.KaldiRecognizer(model, samplerate)
-                while recognizerListening:
-                    data = q.get()
-                    if rec.AcceptWaveform(data):
-                        recognizedLabel = rec.Result()
-                        print(rec.Result())
-                    else:
-                        recognizedLabel = rec.PartialResult()
-                        print(rec.PartialResult())
 
 # Init pins
 # Set GPIO mode to board (thus using the printed numbering on the pi)
@@ -229,18 +273,21 @@ GPIO.setup(buzzerPin, GPIO.OUT)
 
 # Run the function to initialize the sockets
 initSockets()
-
-# Initialize the voice recognition model
-model = vosk.Model(args.model)
-q = queue.Queue()
     
 # Set event listeners
+print('Started listening to buttons')
 while True:
     if serverConfigured:
-        if GPIO.input(buttonPins['speechPIN']) == GPIO.LOW:
-            activateSpeech()
+        if GPIO.input(buttonPins['speechPIN']) == GPIO.LOW and not recognizerListening:
+            print("starting activation of speech")
+            speechThread = Thread(target=activateSpeech)
+            speechThread.start()
+            recording = True
+            recognizerListening = True
         if GPIO.input(buttonPins['speechPIN']) == GPIO.HIGH and recognizerListening:
-            terminateSpeech()
+            print("quiting of speech")
+            recording = False
+            recognizerListening = False
         if GPIO.input(buttonPins['powerPIN']) == GPIO.LOW:
             powerOFF(True)
     else:

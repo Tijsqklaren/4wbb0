@@ -6,6 +6,9 @@ from socket import socket, gethostbyname, AF_INET, SOCK_DGRAM, gethostname
 import json
 from threading import Thread
 import time
+from vosk import Model, KaldiRecognizer, SetLogLevel
+import sys
+import wave
 
 # Set files for object recognition
 configInput = os.path.abspath("./yolov3.cfg")
@@ -59,26 +62,74 @@ def listenForInput():
     global lostObjectLabel
     global client_ip
     global dataPort
+    global lostObjectLabel
 
     while True:
         (data,addr) = mySocket.recvfrom(SIZE)
         receivedData = data.decode('utf8', 'strict')
         if len(receivedData):
             dataDict = json.loads(receivedData)
-            print(dataDict)
             if dataDict['type'] == "searchFinished":
                 terminateSearch = True
             elif dataDict['type'] == "clientPowerOff":
                 print('Client is powering off, so turn server off')
                 loopbreak = True
-            elif(dataDict['type'] == "objectLabel"):
-                lostObjectLabel = dataDict['value']
-                print("Searching for: " + lostObjectLabel)
-                mySocket.sendto(str.encode(json.dumps({"type": "objectLabelReceived", "value": True})),(client_ip,dataPort))
-                terminateSearch = False
+            elif dataDict['type'] == "startSpeech":
+                print("Voice recording started")
+
+                (data,addr) = mySocket.recvfrom(SIZE)
+                receivedData = data.decode('utf8', 'strict')
+                if len(receivedData):
+                    dataDict = json.loads(receivedData)
+                    if dataDict['type'] == "quitSpeech":
+                        fileSize = dataDict['size']
+                        sample_width = dataDict['sample_width']
+                        RATE = dataDict['rate']
+
+                        print("Voce recording quit, filesize: " + str(fileSize))
+
+                        frames = []
+                        
+                        i = 0
+                        while i <= fileSize:
+                            i += 1
+                            (RecvData, addr) = mySocket.recvfrom(SIZE)
+                            # file.write(RecvData)
+                            frames.append(RecvData)
+                            print(i, i<=fileSize)
+
+                        file = wave.open("recv.wav", 'wb')
+
+                        file.setnchannels(1)
+                        file.setsampwidth(sample_width)
+                        file.setframerate(RATE)
+                        file.writeframes(b''.join(frames))
+                        file.close()
+
+                        print("Written to file")
+
+                wf = wave.open(os.path.abspath("./recv.wav"), "rb")
+                rec = KaldiRecognizer(model, wf.getframerate())
+
+                while True:
+                    data = wf.readframes(4000)
+                    if len(data) == 0:
+                        break
+                    if rec.AcceptWaveform(data):
+                        rec.Result()
+                    else:
+                        rec.PartialResult()
+
+                spokenWord = json.loads(rec.FinalResult())['text']
+                print(spokenWord)
+
+                with open(classesInput, 'r') as f:
+                    if spokenWord in f.read():
+                        print("Searching for: " + spokenWord)
+                        lostObjectLabel = spokenWord
+                        mySocket.sendto(str.encode(json.dumps({"type": "objectLabelIdentified", "value": spokenWord})),(client_ip,dataPort))
+                        terminateSearch = False
             
-
-
 def initSockets():
     global mySocket
     global server_ip
@@ -92,7 +143,8 @@ def initSockets():
     hostName = gethostbyname('0.0.0.0')
 
     client_ip = "192.168.0.10"
-    server_ip = gethostbyname(gethostname())
+    # server_ip = gethostbyname(gethostname())
+    server_ip = "192.168.0.26"
 
     mySocket = socket(AF_INET, SOCK_DGRAM)
     mySocket.bind((hostName, dataPort))
@@ -133,6 +185,10 @@ lineType = 2
 
 # Run the function to initialize the sockets
 initSockets()
+
+# Initialize model
+print(os.path.abspath("./stream/Server-Side/model_large"))
+model = Model(os.path.abspath("./stream/Server-Side/model_large"))
 
 while True:
     if cv2.waitKey(1) & 0xFF == ord('q') or loopbreak:
