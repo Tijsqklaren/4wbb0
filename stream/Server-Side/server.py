@@ -222,6 +222,8 @@ while True:
     conf_threshold = 0.5
     nms_threshold = 0.4
 
+    qtyObjects = 0
+
     for out in outs:
         for detection in out:
             scores = detection[5:]
@@ -243,6 +245,7 @@ while True:
                 d_center_y = round((1 - (2*center_y)/Height)*100)
 
                 if str(classes[class_id]) == lostObjectLabel:
+                    qtyObjects += 1
                     mySocket.sendto(str.encode(json.dumps({"type": "centerDiff", "value": d_center_x})),(client_ip,dataPort))
 
     indices = cv2.dnn.NMSBoxes(boxes, confidences, conf_threshold, nms_threshold)
@@ -257,5 +260,8 @@ while True:
         draw_prediction(frame, class_ids[i], confidences[i], round(x), round(y), round(x + w), round(y + h), d_center_x, d_center_y)
 
     class_list = [i[0] for i in indices]
+
+    if not qtyObjects:
+        mySocket.sendto(str.encode(json.dumps({"type": "noObjectFound"})),(client_ip,dataPort))
 
     cv2.imshow('Input', frame)

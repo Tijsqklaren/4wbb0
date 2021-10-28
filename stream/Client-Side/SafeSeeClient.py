@@ -29,7 +29,6 @@ recognizerListening = False
 recording = True
 
 # Audio recording
-CHUNK = 1024
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
 device_info = sd.query_devices(0, 'input')
@@ -84,7 +83,7 @@ def activateSpeech():
 					channels=CHANNELS,
 					rate=RATE,
 					input=True,
-					frames_per_buffer=CHUNK)
+					frames_per_buffer=SIZE)
     
     frames = []
     
@@ -93,7 +92,7 @@ def activateSpeech():
     while recording:
         print('listening')
         n += 1
-        data = stream.read(CHUNK)
+        data = stream.read(SIZE)
         frames.append(data)
 
     print("Quit recording")
@@ -130,9 +129,6 @@ def powerOFF(self):
     # Tell the server to also terminate the connection
     sendQuery = {'type': 'clientPowerOff', 'value': True}
     mySocket.sendto(str.encode(json.dumps(sendQuery)),(server_ip,dataPort))
-
-    # Actually shut down
-    subprocess.call(['sudo', 'shutdown', '-h', 'now'], shell=False)
 
 # Search for the object
 def activateSearch():
@@ -173,7 +169,7 @@ def beepGenerator():
     global percentageValue
     global beepGeneratorActive
 
-    frequencyRange = [1, 10]
+    frequencyRange = [1, 20]
 
     while True:
         if beepGeneratorActive:
@@ -215,6 +211,8 @@ def socketThreadFunc():
                 elif dataDict['type'] == "objectLabelIdentified":
                     activateSearchThread = Thread(target=activateSearch)
                     activateSearchThread.start()
+                elif dataDict['type'] == "noObjectFound":
+                    beepGeneratorActive = False
 
 def initSockets():
     global mySocket
