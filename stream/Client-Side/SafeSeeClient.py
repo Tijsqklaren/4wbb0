@@ -129,6 +129,7 @@ def powerOFF(self):
     # Tell the server to also terminate the connection
     sendQuery = {'type': 'clientPowerOff', 'value': True}
     mySocket.sendto(str.encode(json.dumps(sendQuery)),(server_ip,dataPort))
+    subprocess.call(['sudo', 'shutdown', '-h', 'now'], shell=False)
 
 # Search for the object
 def activateSearch():
